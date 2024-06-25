@@ -16,6 +16,7 @@ class Experiment:
         )
 
         minutes = list(range(0, 60 * 1800, 1800))
+        # minutes = list(range(0*1800, 1 * 1800, 1800))
 
         param_sweeps = {
             "diff_thresh" : [16],
@@ -90,6 +91,7 @@ class Experiment:
     def run_ingest(self):
         try:
             res = parallelize_update_dictionary(self._ingest_helper_fn, range(len(self.ingest_combos)), total_cpus=40, max_workers=10)
+            # res = self._ingest_helper_fn(0)
             return res
         except Exception as e:
             print("FAILED AT ", e)

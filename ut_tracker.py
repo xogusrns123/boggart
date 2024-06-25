@@ -11,6 +11,10 @@ from copy import deepcopy
 import numpy as np
 from pathlib import Path
 import time
+from configs import BOGGART_REPO_PATH
+import pandas as pd
+import os
+
 
 IGNORE_MASK = False
 
@@ -544,6 +548,7 @@ class Tracker:
 
         log.debug(f"== Analyzing Frame {self.curr_timestamp} ==")
 
+        # num frame
         self.save_ts = save_ts
 
         # switch between 0 and 1 buffers
@@ -560,6 +565,16 @@ class Tracker:
         # run cca to get blobs
         self.blob_detector = BlobDetector(morph_open_kernel=self.morph_open_kernel, morph_close_kernel=self.morph_close_kernel)
         self.blob_detector.update(foreground, orig_im[::])
+
+        # visuallize blobs
+        # output_dir = f'{BOGGART_REPO_PATH}/data/blobs'
+        # os.makedirs(output_dir, exist_ok=True)  # Ensure the directory exists
+        # output_path = os.path.join(output_dir, f'output_blobs_after_updatemodel.csv')
+        # if not os.path.exists(output_path):
+        #     pd.DataFrame(columns=["frame", "x1", "y1", "x2", "y2"]).to_csv(output_path, index=False)
+
+        # image_with_blobs = self.blob_detector.draw_bounding_boxes(orig_im.copy())
+        # cv2.imwrite(output_path, image_with_blobs)
 
         kps_loc_fname = self.kps_loc_template.format(frame_no=self.save_ts)
         kps_matches_fname = self.kps_matches_template.format(frame_no=self.save_ts)
@@ -579,6 +594,8 @@ class Tracker:
         pointsBlob.calculatePointBlobAssociation(
             self.blob_detector.getLabelMask())
 
+        
+        # kps (key points)와 blob을 매칭시켜서 매칭되지 않는 blob filtering
         self.blob_detector.filterOutBlobsWithNoKPs(pointsBlob)
         self.mIdBoundingBoxMap[self.mCurrentFrameIdx] = self.blob_detector.getBlobBoundingBoxMap()
 
@@ -608,6 +625,32 @@ class Tracker:
         self.updateModel(association)
 
         self.updateState()
+
+        # # df = self.blob_detector.make_df_bboxes(self.save_ts)
+        # # df.to_csv(output_path, mode='a', index=False, header=False)
+        # ##### Blob들의 bounding box를 CSV에 저장
+        # # Blob들의 bounding box를 CSV에 저장
+        # updated_data = {
+        #     'frame': [],
+        #     'x1': [],
+        #     'y1': [],
+        #     'x2': [],
+        #     'y2': []
+        # }
+        # for label, obj in self.mBlobLabelToObject[self.mCurrentFrameIdx].items():
+        #     blobRect = self.mIdBoundingBoxMap[self.mCurrentFrameIdx][label]
+        #     x1, y1, x2, y2 = blobRect.mBoundingBox
+        #     updated_data['frame'].append(self.save_ts)
+        #     updated_data['x1'].append(x1)
+        #     updated_data['y1'].append(y1)
+        #     updated_data['x2'].append(x2)
+        #     updated_data['y2'].append(y2)
+        # updated_df = pd.DataFrame(updated_data)
+        # updated_df.to_csv(output_path, mode='a', index=False, header=False)
+
+        # #######
+
+        
 
         objectToLabel: Dict[IObject, int] = dict()
         for label, obj in list(self.mBlobLabelToObject[self.mCurrentFrameIdx].items()):
@@ -641,6 +684,30 @@ class Tracker:
                 om.updateInGroupBlobs()
 
         self.curr_timestamp += 1
+
+        # if save_ts == 1799:
+        #     final_data = {
+        #         'ObjId': [],
+        #         'frame': [],
+        #         'x1': [],
+        #         'y1': [],
+        #         'x2': [],
+        #         'y2': []
+        #     }
+
+        #     for obj in self.mObjectList:
+        #         objId = obj.getObjectId()
+        #         for ts, blob in sorted(obj.getIObjectModel().getBlobs().items()):
+        #             bbox = list(map(int, blob.getBoundingBox()))
+        #             final_data['ObjId'].append(objId)
+        #             final_data['frame'].append(ts)
+        #             final_data['x1'].append(bbox[0])
+        #             final_data['y1'].append(bbox[1])
+        #             final_data['x2'].append(bbox[2])
+        #             final_data['y2'].append(bbox[3])
+
+        #     final_df = pd.DataFrame(final_data)
+        #     final_df.to_csv(output_path, mode='a', index=False, header=False)
 
     def save_results(self, fname=None):
         import pandas as pd

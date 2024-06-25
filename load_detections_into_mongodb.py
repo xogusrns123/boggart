@@ -9,8 +9,8 @@ from db_model import DetectionResult, Frame
 from utils import parallelize_update_dictionary
 # from ground_truth_yolo import ml_model, video_name, hour, csv_path
 
-video_name = "lausanne_crf37_pont_bassieres"
-ml_model = "yolov5"
+video_name = "mfs800k_ultra_max"
+ml_model = "yolov5l"
 hour = 10
 csv_path = f"{BOGGART_REPO_PATH}/inference_results/{ml_model}/{video_name}/{video_name}{hour}.csv"
 
@@ -37,7 +37,7 @@ def exec(frame_start, num_frames=900):
         except DoesNotExist:
             pass
 
-        curr_data = df[df['frame'] == i+1]
+        curr_data = df[df['frame'] == i]
 
         # save det
         det = DetectionResult()

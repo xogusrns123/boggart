@@ -89,9 +89,9 @@ class ClusteringPipelineEngine:
         # print(f"all vecs: {self.all_vecs}")
         # print(f"all vecs len: {len(self.all_vecs)}")
         # print(f"all dfs: {self.all_dfs}")
-        print(f"clusters:{clusters}")
+        # print(f"clusters:{clusters}")
         # print(f"len clusters:{len(clusters)}")
-        print(f"centroids:{centroids}")
+        # print(f"centroids:{centroids}")
 
         if not np.array_equal(centroids[clusters][centroids], centroids):
             clusters[centroids] = list(range(n_clusters))
@@ -112,15 +112,62 @@ class ClusteringPipelineEngine:
         # target accuracy에 맞는 mfs_approach값 찾는 과정
         # centroid에 query를 진행하여 mfs_approach값 찾고, 찾는 mfs_approach는 같은 cluster의 모든 chunk에 동일하게 적용
         while len(centroids_df) > 0:
-
+            print(f"Starting iteration with {len(centroids_df)} centroids left")
             centroid_qps = []
             for (_, (query_seg_start, chunk_start, hour, cluster)) in centroids_df.iterrows():
 
                 vd = VideoData(self.vid_label, hour)
-                for mfs in self.mfs_sweep[mfs_sweep_index * sweep_chunk_length : (mfs_sweep_index + 1) * sweep_chunk_length]:
-                    qp = QueryProcessor(query_type, vd, model, query_class, self.query_conf, mfs, self.bg_conf, self.traj_conf, ioda, self.query_seg_size)
-                    centroid_qps.append([chunk_start, query_seg_start, qp])
+                #####
+                #### for experiment
 
+                ## mfs target accuracy:0.95
+                # if int(chunk_start) == 1800:
+                #     mfs = 10
+                # elif int(chunk_start) == 9000:
+                #     mfs = 10
+                # elif int(chunk_start) == 36000:
+                #     mfs = 1
+                # elif int(chunk_start) == 52200:
+                #     mfs = 2
+                # elif int(chunk_start) == 86400:
+                #     mfs = 2
+                # elif int(chunk_start) == 90000:
+                #     mfs = 5
+                
+                ## mfs target accuracy:0.9
+                if int(chunk_start) == 1800:
+                    mfs = 900
+                elif int(chunk_start) == 9000:
+                    mfs = 20
+                elif int(chunk_start) == 36000:
+                    mfs = 2
+                elif int(chunk_start) == 52200:
+                    mfs = 10
+                elif int(chunk_start) == 86400:
+                    mfs = 10
+                elif int(chunk_start) == 90000:
+                    mfs = 20
+                
+                qp = QueryProcessor(query_type, vd, model, query_class, self.query_conf, mfs, self.bg_conf, self.traj_conf, ioda, self.query_seg_size)
+                centroid_qps.append([chunk_start, query_seg_start, qp])
+
+                #####
+                # for mfs in self.mfs_sweep[mfs_sweep_index * sweep_chunk_length : (mfs_sweep_index + 1) * sweep_chunk_length]:
+                #     qp = QueryProcessor(query_type, vd, model, query_class, self.query_conf, mfs, self.bg_conf, self.traj_conf, ioda, self.query_seg_size)
+                #     centroid_qps.append([chunk_start, query_seg_start, qp])
+                #####
+
+                #### for experiment
+                # if mfs_sweep_index < 11:
+                #     for mfs in self.mfs_sweep[mfs_sweep_index * sweep_chunk_length : (mfs_sweep_index + 1) * sweep_chunk_length]:
+                #         qp = QueryProcessor(query_type, vd, model, query_class, self.query_conf, mfs, self.bg_conf, self.traj_conf, ioda, self.query_seg_size)
+                #         centroid_qps.append([chunk_start, query_seg_start, qp])
+                # else:
+                #     for mfs in self.mfs_sweep[0 : 18]:
+                #         qp = QueryProcessor(query_type, vd, model, query_class, self.query_conf, mfs, self.bg_conf, self.traj_conf, ioda, self.query_seg_size)
+                #         centroid_qps.append([chunk_start, query_seg_start, qp])
+
+                #####
             # run query about centroid chunks
             if len(centroid_qps) > 0:
                 self.qp_sweep = centroid_qps
@@ -128,18 +175,32 @@ class ClusteringPipelineEngine:
                 self.qp_sweep = None
                 _tempDF = list(map(itemgetter(1), sorted(c_sweep_res.items(), key=itemgetter(0))))
                 c_sweep_res = pd.concat(_tempDF).reset_index().drop(columns="index")
-            
                 entire_df = pd.concat([entire_df, c_sweep_res.copy()]) if entire_df is not None else c_sweep_res
                 # mfs_approach값에 따른 score가 존재
                 # score < acc_target인것들 제거
-                c_sweep_res = c_sweep_res[c_sweep_res.score >= acc_target].sort_values(["hour", "seg_start"])
+                ####
+                # c_sweep_res = c_sweep_res[c_sweep_res.score >= acc_target].sort_values(["hour", "seg_start"])
+                ####
+
+                ### for experiment
+                # 모든 mfs_sweep에 대해서 했는데도 accuracy 충족 못하면 그냥 score최대인걸로 뽑기
+                # if mfs_sweep_index < 11:
+                #     c_sweep_res = c_sweep_res[c_sweep_res.score >= acc_target].sort_values(["hour", "seg_start"])
+                # else:
+                #     c_sweep_res = c_sweep_res.loc[c_sweep_res.groupby(["hour", "seg_start"]).score.idxmax()]
+                ###
                 # score > acc_target인 것들중 mfs_approach 최대인 값 찾기
                 c_sweep_res = c_sweep_res.loc[c_sweep_res.groupby(["hour", "seg_start"]).mfs_approach.idxmax()]
-
+            
+                # c_sweep_res에서 기준 acc_target에 충족하지 않는 chunk_start가 있으면 이에 대해 다시 진행
                 centroids_df = centroids_df.merge(c_sweep_res, how='outer', indicator=True).loc[lambda x : x['_merge']=='left_only'][["seg_start", "chunk_start", "hour", "cluster"]]
+                #### for experiment
+                centroids_df = []
+                ####
                 mfs_sweep_index += 1
 
             else:
+                # 그냥 cluster없을때 하는 것 같음
                 temp_df = centroids_df.merge(entire_df, on=["seg_start", "chunk_start", "hour"])
                 c_sweep_res = temp_df.loc[temp_df.groupby(["seg_start", "chunk_start", "hour"]).score.idxmax()].drop(columns=["cluster"])
                 centroids_df = []
@@ -149,7 +210,8 @@ class ClusteringPipelineEngine:
         assert len(full_df) == len(centroids)
 
         self.all_dfs["mfs_approach"] = full_df.mfs_approach.values[self.all_dfs["cluster"]]
-
+        print(full_df)
+        print(self.all_dfs)
         assert len(full_df.merge(self.all_dfs, how='outer', on=["chunk_start", "seg_start", "hour", "cluster"], indicator=True).loc[lambda x : x['_merge']=='both'].loc[lambda x : x['mfs_approach_x'] != x['mfs_approach_y']]) == 0
 
         remaining_segments_df = full_df.merge(self.all_dfs, how='outer', on=["chunk_start", "seg_start", "hour", "cluster", "mfs_approach"], indicator=True).loc[lambda x : x['_merge']=='right_only'][["hour", "chunk_start", "seg_start", "mfs_approach", "cluster"]]
@@ -163,6 +225,7 @@ class ClusteringPipelineEngine:
 
         self.qp_sweep = remaining_qps
         remaining_query_results = parallelize_update_dictionary(self._sweep_helper, range(len(remaining_qps)), total_cpus=40, max_workers=20)
+        # print(remaining_query_results)
         self.qp_sweep = None
 
         _tempDF = list(map(itemgetter(1), sorted(remaining_query_results.items())))
@@ -171,7 +234,7 @@ class ClusteringPipelineEngine:
         mfs = remaining_query_results.min_frames.sum() + len(centroids) * self.query_seg_size * self.fps / 30
         # Final results
         full_results = pd.concat([full_df, remaining_query_results]).sort_values(["hour", "seg_start"]).reset_index().drop(columns="index")
-        print(full_results)
+
         score = np.round(full_results.score.mean(), 4)
 
         assert len(full_results) == len(self.all_dfs)
@@ -187,6 +250,7 @@ class ClusteringPipelineEngine:
         for _, row in full_results.sort_values(["hour", "chunk_start"]).iterrows():
             vd = VideoData(row.vid, row.hour)
             qp = QueryProcessor(query_type, vd, model,query_class, self.query_conf, row.mfs_approach, self.bg_conf, self.traj_conf, ioda, self.query_seg_size)
+            # save boggart result file
             chunk_result = qp.load_boggart_results(row.chunk_start, row.seg_start)
             for frame_diff, frame_result in enumerate(chunk_result):
                 if query_type == "bbox":

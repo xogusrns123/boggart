@@ -6,6 +6,7 @@ from collections import defaultdict
 from typing import Set, Tuple, List, Dict, DefaultDict
 from ut_util_classes import BlobRect
 from ut_util_classes import log
+import pandas as pd
 
 class BlobDetector:
 
@@ -35,6 +36,7 @@ class BlobDetector:
         temp = cv2.morphologyEx(im, cv2.MORPH_OPEN, kernel)
         kernel = np.ones(self.morph_close_kernel, np.uint8)
         temp = cv2.morphologyEx(temp, cv2.MORPH_CLOSE, kernel)
+        # 객체 수 + 1, 객체에 번호가 지정된 label map, N*5(N은 객체 수 + 1, 각 행에 x,y,width,height,area), N*2(각 행에 x,y무게중심좌표)
         num_labels, labels, stats, centroid = cv2.connectedComponentsWithStats(temp)
 
         blobs_to_remove = []
@@ -86,6 +88,30 @@ class BlobDetector:
         for blobId in blobs_to_remove:
             del self.mBlobIdRectMap[blobId]
 
+    def draw_bounding_boxes(self, image):
+        for blobId, blobRect in self.mBlobIdRectMap.items():
+            x1, y1, x2, y2 = blobRect.mBoundingBox
+            cv2.rectangle(image, (x1, y1), (x2, y2), (0, 255, 0), 2)
+        return image
+    
+    def make_df_bboxes(self, frame_idx):
+        data = {
+            'frame': [],
+            'x1': [],
+            'y1': [],
+            'x2': [],
+            'y2': []
+        }
+        for blobId, blobRect in self.mBlobIdRectMap.items():
+            x1, y1, x2, y2 = blobRect.mBoundingBox
+            data['frame'].append(frame_idx)
+            data['x1'].append(x1)
+            data['y1'].append(y1)
+            data['x2'].append(x2)
+            data['y2'].append(y2)
+        df = pd.DataFrame(data)
+        return df
+        
 class FeatureDetectorExtractorMatcher:
 
     ratio = 0.80

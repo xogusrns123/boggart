@@ -6,6 +6,7 @@ import cv2
 import numpy as np
 import pandas as pd
 from tqdm import tqdm, trange
+import cv2
 
 from ut_tracker import Tracker
 from VideoData import VideoData, NoMoreVideo
@@ -193,9 +194,9 @@ class IngestTimeProcessing:
         frame_generator = self.vd.get_frames_by_bounds(chunk_start, chunk_start+self.traj_config.chunk_size, int(30/self.traj_config.fps))
         
         # Initialize video writer for saving foreground video
-        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-        output_video_path = os.path.join(self.video_dir, f"foreground/foreground_{chunk_start}.mp4")
-        k = 0
+        # fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        # output_video_path = os.path.join(self.video_dir, f"foreground/foreground_{chunk_start}.mp4")
+        # k = 0
         for i in trange(chunk_start, chunk_start+self.traj_config.chunk_size, int(30/self.traj_config.fps), leave=False, desc=f"{chunk_start}_{self.traj_config.chunk_size}"):
             f = next(frame_generator)
             if f is None:
@@ -215,19 +216,20 @@ class IngestTimeProcessing:
 
             result = self.get_foreground(bg_max, bg_max2, f)
 
-            if k == 0:
-                # print(result.shape[1],result.shape[0])
-                out = cv2.VideoWriter(output_video_path, fourcc, self.fps, (result.shape[1], result.shape[0]), isColor=False)
-                k = 1
+            # if k == 0:
+                # out = cv2.VideoWriter(output_video_path, fourcc, self.fps, (result.shape[1], result.shape[0]), isColor=False)
+                # k = 1
             # Write the foreground result to video
-            out.write(result)
+            # out.write(result)
+            # output_image_path = os.path.join(self.video_dir, f"images/image_{i}.png")
+            # cv2.imwrite(output_image_path, f)
 
             t.process_frame(result, o, save_ts=i)
             
         t.save_results(traj_fname)
 
         # Release the video writer
-        out.release()
+        # out.release()
 
         if load:
             try:

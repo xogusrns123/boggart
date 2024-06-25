@@ -7,11 +7,37 @@ from VideoData import VideoData
 from utils import (calculate_bbox_accuracy, calculate_count_accuracy,
                    get_ioda_matrix, calculate_binary_accuracy, parallelize_update_dictionary)
 import numpy as np
-# from evaluator import Evaluator
+from visuallize import ResultProcessor
 
 query_class = 2
 query_conf = 0.7
 fps = 30
+video_name = "auburn_first_angle"
+    
+main_dir = "/home/kth/rva"
+video_path = f"{main_dir}/{video_name}.mp4"
+video_chunk_path = f"{main_dir}/boggart/data/{video_name}10/video/{video_name}10_0.mp4"
+output_video_path = f'{main_dir}/{video_name}_output.mp4'
+yolo_path = f"{main_dir}/boggart/inference_results/yolov5/{video_name}/{video_name}10.csv"
+trajectory_dir = f"{main_dir}/boggart/data/{video_name}10/trajectories"
+query_result_dir = f"{main_dir}/boggart/data/{video_name}10/query_results/bbox"
+boggart_result_dir = f"{main_dir}/boggart/data/{video_name}10/boggart_results/bbox"
+
+"""
+0: yolo_detection
+1: trajectory
+2: boggart results
+3: query_results
+"""
+_type = 2
+end_frame = 0.0
+target_acc = 0.9
+vd = VideoData(video_name, 10)
+processor = ResultProcessor(vd, video_path, output_video_path, trajectory_dir, boggart_result_dir, query_result_dir, yolo_path, _type, end_frame, target_acc)
+
+boggart_results_files = processor.get_smallest_mfs_files()
+
+
 
 def get_gt(video_name, hour, model, query_segment_start, query_segment_size = 1800):
     video_data = VideoData(video_name, hour)
@@ -23,83 +49,40 @@ def get_gt(video_name, hour, model, query_segment_start, query_segment_size = 18
     # print(gt_bboxes)
     return gt_bboxes
 
-
+def get_boggart_list(chunk_start):
+    for path in boggart_results_files:
+        if int(path.split('/')[-1].split('_')[0]) == int(chunk_start):
+            # Load bounding boxes from JSON file
+            with open(path, 'r') as f:
+                bboxes = json.load(f)
+                return bboxes
 
 def accuracy(chunk_start):
 
     scores = []
 
-    gt_bboxes = get_gt("lausanne_pont_bassieres", 10, "yolov5", chunk_start)
-
-    det_bboxes = get_gt("lausanne_crf23_pont_bassieres", 10, "yolov5", chunk_start)
+    gt_bboxes = get_gt("auburn_first_angle_base", 10, "yolov5l", chunk_start)
+    # print(gt_bboxes)
+    # det_bboxes = get_boggart_list(chunk_start)
+    det_bboxes = get_gt("mfs800k_ultra_max", 10, "yolov5l", chunk_start)
     # print(det_bboxes)
-
     # bounding box accuracy
     for bbox_gt, sr in zip(gt_bboxes, det_bboxes):
         scores.append(calculate_bbox_accuracy(bbox_gt, sr))
-        # print(scores)
-
+    # print(round(np.mean(np.array(scores)),4))
     return {"scores": scores}
 
 
-
-
+# for path in boggart_results_files:
+#     if int(path.split('/')[-1].split('_')[0]) == 1800:
+#         # Load bounding boxes from JSON file
+#         with open(path, 'r') as f:
+#             bboxes = json.load(f)
+#             print(bboxes)
+# print(boggart_results_files)
 total_scores = []
 scores_dict = parallelize_update_dictionary(accuracy, range(0, 108000, 1800), max_workers=40, total_cpus=40)
 for ts, score in scores_dict.items():
     total_scores.extend(score['scores'])
 
 print(round(np.mean(np.array(total_scores)),4))
-
-
-
-# gt_bboxess = get_gt("auburn_first_angle", 10, "yolov5", 0)
-# query_results = get_gt("auburn_first_angle", 10, "yolov5", 0)
-# for model_a_dets, model_b_dets in zip(gt_bboxess, query_results):
-
-#     # check both empty
-#     if len(model_a_dets) == len(model_b_dets) == 0:
-#         print(1) 
-#     # check one is empty
-#     if len(model_a_dets) == 0 or len(model_b_dets) == 0:
-#         print(0) 
-
-#     if len(model_a_dets) == 0:
-#         model_a_dets = np.empty(shape=[0, 4], dtype=np.float32)
-#     if len(model_b_dets) == 0:
-#         model_b_dets = np.empty(shape=[0, 4], dtype=np.float32)
-#     # print(model_b_dets)
-#     # for det in model_b_dets:
-#     #     print(len(det), det)
-#     det_dict = {
-#         'detection_boxes': np.array(model_b_dets, dtype=np.float32),
-#         'detection_scores': np.array([1 for _ in range(len(model_b_dets))], dtype=np.float32),
-#         'detection_classes': np.array([0 for _ in range(len(model_b_dets))], dtype=np.uint8)
-#     }
-#     # print(det_dict)
-#     gt_dict = {
-#         "groundtruth_boxes" : np.array(model_a_dets, dtype=np.float32),
-#         "groundtruth_classes" : np.array([0 for _ in range(len(model_a_dets))], dtype=np.uint8)
-#     }
-#     # x1,y1,x2,y2 -> x1,y1,w,h
-#     det_dict['detection_boxes'] = np.hstack((det_dict['detection_boxes'][:, 0:2],
-#                                             (det_dict['detection_boxes'][:, 2] - det_dict['detection_boxes'][:, 0])[:,np.newaxis],
-#                                             (det_dict['detection_boxes'][:, 3] - det_dict['detection_boxes'][:, 1])[:,np.newaxis]))
-
-#     gt_dict['groundtruth_boxes'] = np.hstack((gt_dict['groundtruth_boxes'][:, 0:2],
-#                                             (gt_dict['groundtruth_boxes'][:, 2] - gt_dict['groundtruth_boxes'][:, 0])[:,np.newaxis],
-#                                             (gt_dict['groundtruth_boxes'][:, 3] - gt_dict['groundtruth_boxes'][:, 1])[:,np.newaxis]))
-
-#     det_combined = np.hstack((det_dict['detection_boxes'], det_dict['detection_scores'][:, np.newaxis], det_dict['detection_classes'][:, np.newaxis]))
-#     gt_combined = np.hstack((gt_dict['groundtruth_boxes'], gt_dict['groundtruth_classes'][:, np.newaxis]))
-
-#     # print(det_combined)
-
-#     coco_eval = Evaluator()
-#     coco_eval.add(det_combined, gt_combined)
-#     coco_eval.accumulate()
-#     a = coco_eval.summarize()
-#     if a == -1:
-#         print(gt_combined)
-#         print("sdf")
-#         print(det_combined)

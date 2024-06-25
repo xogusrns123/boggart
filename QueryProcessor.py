@@ -14,6 +14,7 @@ from ModelProcessor import ModelProcessor
 from utils import (calculate_bbox_accuracy, calculate_count_accuracy,
                    get_ioda_matrix, calculate_binary_accuracy)
 from VideoData import VideoData
+import csv
 
 class QueryProcessor:
 
@@ -22,11 +23,17 @@ class QueryProcessor:
         self.video_data = video_data
         self.fps = traj_conf.fps
         self.modelProcessor: ModelProcessor = ModelProcessor(model, video_data, query_class, query_conf, self.fps)
+        ### for experiment
+        # self.modelProcessor: ModelProcessor = ModelProcessor(model, VideoData('auburn_60k', 10), query_class, query_conf, self.fps)
+        ####
         self.mfs_approach = mfs_approach
         self.ioda = ioda
         self.bg_conf: BackgroundConfig = bg_conf
         self.traj_conf : TrajectoryConfig = traj_conf
         self.query_segment_size : int = query_segment_size
+        
+        # quality 다른 gt
+        self.other_mP = ModelProcessor(model, VideoData('auburn_first_angle_base', 10), query_class, query_conf, self.fps)
 
         assert self.query_segment_size <= self.traj_conf.chunk_size
 
@@ -82,6 +89,7 @@ class QueryProcessor:
         results = results[(results.TS >= query_segment_start) & (results.TS < query_segment_start + self.query_segment_size)]
         return results
 
+    # df -> dict
     def prepare_tracking_results(self, df, query_segment_start):
         prepared_results = dict()
         if self.modelProcessor.crop_region is not None:
@@ -253,7 +261,8 @@ class QueryProcessor:
         assert chunk_start <= query_segment_start <= query_segment_start + self.query_segment_size <= chunk_start + self.traj_conf.chunk_size
 
         results_fname, colnames, cols = self.get_results_fname(chunk_start, query_segment_start, get_save_info=True)
-
+        
+        # if query results file exists, return 
         if os.path.exists(results_fname):
             if check_only:
                 return
@@ -265,15 +274,16 @@ class QueryProcessor:
         trajectories_df = self.get_tracking_info(chunk_start, query_segment_start)
         if type(trajectories_df) is not pd.core.frame.DataFrame and trajectories_df == -1:
             return None
+        # ground truth, query class에 해당하는 것만 가져온다.
         gt_bboxes, gt_counts = self.modelProcessor.get_ground_truth(query_segment_start, query_segment_start + self.query_segment_size)
         return_dictionary["gt_bboxes"] = gt_bboxes
-        # print(f"gt bboxes:{gt_bboxes}")
 
         return_dictionary["trajectory_df"] = trajectories_df.copy() if trajectories_df is not None else None
 
         no_tracking = trajectories_df is None
         if trajectories_df is not None:
             mot_results = self.prepare_tracking_results(trajectories_df.copy(), query_segment_start)
+            # check is empty?
             no_tracking = np.sum([len(e) for e in list(mot_results.values())]) == 0
 
         if no_tracking:
@@ -289,7 +299,9 @@ class QueryProcessor:
             query_results = [curr_result for _ in range(self.query_segment_size)]
 
         else:
+            # min_frames들 set type으로 frame index return
             min_frames_set = self.get_min_frame_set(mot_results.copy(), query_segment_start)
+            # mfs와 해당하는 bounding box 
             mfs_dets = [(frame_no, gt_bboxes[int((frame_no-query_segment_start) * self.fps/30)]) for frame_no in min_frames_set]
             return_dictionary["mfs_size"] = len(mfs_dets)
 
@@ -309,12 +321,25 @@ class QueryProcessor:
                 return_dictionary["minimization_errors"] = results_data["minimization_errors"]
             query_results = results_data["query_results"]
             # return_dictionary["distances"] = results_data["distances"]
+        # with open(f'/home/kth/rva/boggart/data/experiment/mfs_0.90/mfs_{chunk_start}.csv', 'w', newline='') as csvfile:
+        #     writer = csv.writer(csvfile)
+            
+        #     # Header 작성
+        #     writer.writerow(['chunk_start', 'data'])
+    
+        #     # 데이터 작성
+        #     writer.writerow([min_frames_set])
+        #     # writer.writerow([mfs_dets])
+        #     # writer.writerow([key_frame_info])
 
         # a bit messy implementation because want to avoid duplicate work for count/binary
         if self.query_type == "bbox":
+            #####
+            # for experiment
+            test_gt_bboxes, test_gt_count = self.other_mP.get_ground_truth(query_segment_start, query_segment_start + self.query_segment_size)
             return_dictionary["query_results"] = query_results
             scores = []
-            for bbox_gt, sr in zip(gt_bboxes, query_results):
+            for bbox_gt, sr in zip(test_gt_bboxes, query_results):
                 scores.append(calculate_bbox_accuracy(bbox_gt, sr))
             return_dictionary["scores"] = scores
 
