@@ -4,6 +4,8 @@ import os
 from tqdm import tqdm
 from configs import BOGGART_REPO_PATH
 import json
+from VideoData import VideoData
+from tqdm import tqdm, trange
 
 # Constants
 # video_name = "auburn_crf23_first_angle"
@@ -17,7 +19,9 @@ import json
 
 
 class ResultProcessor:
-    def __init__(self, video_path, output_video_path, trajectory_dir, boggart_result_dir, query_result_dir, yolo_path, _type, end_frame):
+    def __init__(self, vd, video_path, output_video_path, trajectory_dir, boggart_result_dir, query_result_dir, yolo_path, _type, end_frame, target_accuracy):
+        self.vd = vd
+        self.chunk_size = 1800
         self.video_path = video_path
         self.output_video_path = output_video_path
         self.trajectories = trajectory_dir
@@ -26,10 +30,12 @@ class ResultProcessor:
         self.boggart_result = boggart_result_dir
         self.query_result = query_result_dir
         self.yolo_gt = yolo_path
+        self.target_acc = target_accuracy
         self.df = self.read_input_file()
         self.cap, self.fps, self.width, self.height, self.total_frames = self.initialize_video_capture()
         self.fourcc = cv2.VideoWriter_fourcc(*'mp4v')
         self.out = self.create_video_writer()
+        self.output_image_dir = "/home/kth/rva/images"
 
     def get_smallest_mfs_files(self):
         files = os.listdir(self.boggart_result)
@@ -82,8 +88,22 @@ class ResultProcessor:
     def get_smallest_mfs_info(self):
         full_df = self.load_and_concat_csv()
 
+        # 각 chunk_start 별로 score > 0.9 인 row 선택, 없으면 가장 큰 score 인 row 선택
+        # def filter_chunk_start(df):
+        #     if (df['score'] > self.target_acc).any():
+        #         return df[df['score'] > self.target_acc]
+        #     else:
+        #         print(df['score'])
+        #         return df.loc[df['score'].idxmax()]
+
+        # filtered_df = full_df.groupby('chunk_start').apply(filter_chunk_start).reset_index(drop=True)
+
+        # # 각 chunk_start 별로 mfs_approach가 가장 큰 값을 선택
+        # max_mfs_df = filtered_df.loc[filtered_df.groupby('chunk_start')['mfs_approach'].idxmax()]
+
+
         # score > 0.9 필터링
-        filtered_df = full_df[full_df['score'] > 0.9]
+        filtered_df = full_df[full_df['score'] > self.target_acc]
 
         # 각 chunk_start 별로 mfs_approach가 가장 큰 값을 선택
         max_mfs_df = filtered_df.loc[filtered_df.groupby('chunk_start')['mfs_approach'].idxmax()]
@@ -104,7 +124,9 @@ class ResultProcessor:
     def load_and_concat_csv(self):
         if self.type == 1:
             file_dir = self.trajectories
+            print("trajectory")
         else:
+            print("boggart query results")
             file_dir = self.query_result
 
         # 모든 CSV 파일을 찾아서 읽고 하나의 DataFrame으로 합치기
@@ -145,6 +167,7 @@ class ResultProcessor:
         fps = int(cap.get(cv2.CAP_PROP_FPS))
         width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        print(width, height)
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         return cap, fps, width, height, total_frames
 
@@ -177,9 +200,9 @@ class ResultProcessor:
             if not ret:
                 break
 
-            h = self.height / 2
-            w = self.width / 2
-            frame = cv2.resize(frame, (int(w), int(h)))
+            # h = self.height / 2
+            # w = self.width / 2
+            # frame = cv2.resize(frame, (int(w), int(h)))
 
             # Get bounding boxes for the current frame
             frame_data = self.df[self.df['frame'] == frame_idx]
@@ -189,18 +212,58 @@ class ResultProcessor:
                 frame = self.draw_bounding_boxes(frame, frame_data)
             # else:
             #     break
-            frame = cv2.resize(frame, (self.width, self.height))
+            # frame = cv2.resize(frame, (self.width, self.height))
             # Write the frame to the output video
             self.out.write(frame)
+    
+    def process_video_frames_to_image(self):
+        for chunk_start in range(0, 60* 1800, 1800):
+            if chunk_start >= end_frame:
+                break
+            frame_generator = self.vd.get_frames_by_bounds(chunk_start, chunk_start+self.chunk_size, int(1))
+            
+            for i in trange(chunk_start, chunk_start+self.chunk_size, int(1), leave=False, desc=f"{chunk_start}_{self.chunk_size}"):
+                f = next(frame_generator)
+                if f is None:
+                    print(f"skipping frame {i}")
+                    # assert i > chunk_start+self.traj_config.chunk_size - 250, i
+                    continue
+
+                f = cv2.cvtColor(f, cv2.COLOR_BGR2GRAY)
+
+                h, w, = f.shape
+                h /= 2 # scale down
+                w /= 2 # scale down
+
+                f = cv2.resize(f, (int(w), int(h)))
+
+                # Get bounding boxes for the current frame
+                frame_data = self.df[self.df['frame'] == i]
+
+                # Draw bounding boxes on the frame
+                if not frame_data.empty:
+                    frame = self.draw_bounding_boxes(f, frame_data)
+                
+                f = cv2.resize(f, (self.width, self.height))
+
+                # Ensure the output idrectory exists
+                if not os.path.exists(self.output_image_dir):
+                    os.makedirs(self.output_image_dir)
+                cv2.imwrite(os.path.join(self.output_image_dir, f'image_{self.type}_{i}.png'), f)
 
     def release_resources(self):
         self.cap.release()
         self.out.release()
 
-    def run_draw_bbox(self):
+    def run_draw_bbox_video(self):
         self.process_video_frames()
         self.release_resources()
         print(f"Processed video saved at: {self.output_video_path}")
+
+    def run_draw_bbox_image(self):
+        self.process_video_frames_to_image()
+        self.release_resources()
+        print(f"Processed images saved at: {self.output_image_dir}")
 
 if __name__ == "__main__":
 #     video_name = "auburn_first_angle"
@@ -216,137 +279,30 @@ if __name__ == "__main__":
     # yolo_csv_path = f"{main_dir}/boggart/inference_results/yolov5/{video_name}/{video_name}10.csv"
     # traj_csv_path = f"{main_dir}/boggart/data/{video_name}10/trajectories/deprecated/0_0.1_30_16_1800.csv"
     # boggart_result_dir = f"{main_dir}/boggart/data/{video_name}10/boggart_results/bbox"
-    video_name = "lausanne_pont_bassieres"
+    video_name = "auburn_first_angle"
     
     main_dir = "/home/kth/rva"
-    video_path = f"{main_dir}/{video_name}.mp4"
+    video_path = f"{main_dir}/video/{video_name}.mp4"
+    # video_path = '/home/kth/rva/boggart/data/auburn_crf23_first_angle10/video/auburn_crf23_first_angle10_0.mp4'
     video_chunk_path = f"{main_dir}/boggart/data/{video_name}10/video/{video_name}10_0.mp4"
     output_video_path = f'{main_dir}/{video_name}_output.mp4'
-    yolo_path = f"{main_dir}/boggart/inference_results/yolov5/{video_name}/{video_name}10.csv"
+    yolo_path = f"{main_dir}/boggart/inference_results/yolov5l/{video_name}/{video_name}10.csv"
+    # yolo_path = f"{main_dir}/boggart/inference_results/yolov5l/auburn_1000k/auburn_1000k10.csv"
+    # yolo_path = f"{main_dir}/boggart/data/blobs/output_blobs_after_updatemodel.csv"
     trajectory_dir = f"{main_dir}/boggart/data/{video_name}10/trajectories"
     query_result_dir = f"{main_dir}/boggart/data/{video_name}10/query_results/bbox"
     boggart_result_dir = f"{main_dir}/boggart/data/{video_name}10/boggart_results/bbox"
-
+    # blob_result_dir = f"{main_dir}/boggart/data/blobs/output_blobs.csv"
     """
     0: yolo_detection
     1: trajectory
     2: boggart results
     3: query_results
     """
-    _type = 1
-    end_frame = 10000
-
-    processor = ResultProcessor(video_path, output_video_path, trajectory_dir, boggart_result_dir, query_result_dir, yolo_path, _type, end_frame)
-    processor.run_draw_bbox()
-
-
-
-
-
-
-
-# import cv2
-# import torch
-# import numpy as np
-# from tqdm import tqdm, trange
-# from VideoData import VideoData, NoMoreVideo
-# from configs import BOGGART_REPO_PATH
-# from itertools import product
-
-# # Initialize YOLO model
-# if torch.cuda.is_available():
-#     device = torch.device("cuda:2")
-#     model = torch.hub.load('ultralytics/yolov5', 'yolov5l')
-#     model.to(device)
-# else:
-#     model = torch.hub.load('ultralytics/yolov5', 'yolov5l')
-
-# # Constants
-# video_name = "auburn_frist_angle"
-# hour = 10
-# video_path = f"/home/kth/rva/auburn_first_angle.mp4"
-# output_video_path = f"/home/kth/rva/tracked_output.mp4"
-
-# def run_yolo_and_draw_bboxes(ingest_combos, vd, chunk_size, output_video_path):
-#     try:
-#         # Initialize video capture
-#         cap = cv2.VideoCapture(video_path)
-
-#         # Get video properties
-#         fps = int(cap.get(cv2.CAP_PROP_FPS))
-#         width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-#         height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-#         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-
-#         # Reduce resolution
-#         scale_factor = 0.5
-#         new_width = int(width * scale_factor)
-#         new_height = int(height * scale_factor)
-
-#         # Define codec and create VideoWriter object
-#         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-#         out = cv2.VideoWriter(output_video_path, fourcc, fps, (new_width, new_height))
-
-#         for i in range(len(ingest_combos)):
-#             vals = ingest_combos[i]
-#             chunk_start = vals[1][0]
-
-#             frame_generator = vd.get_frames_by_bounds(chunk_start, chunk_start + chunk_size, int(1))
-#             for frame_idx in trange(chunk_start, chunk_start + chunk_size, int(1), leave=False, desc=f"{chunk_start}_{chunk_size}"):
-#                 ret, frame = cap.read()
-#                 if not ret:
-#                     break
-
-#                 # Resize frame
-#                 frame = cv2.resize(frame, (new_width, new_height))
-
-#                 results = model(frame)
-
-#                 # Convert results to DataFrame
-#                 frame_results = results.pandas().xyxy[0]
-#                 frame_results = frame_results.rename(columns={
-#                     "xmin": "x1", "ymin": "y1", "xmax": "x2", "ymax": "y2",
-#                     "confidence": "conf", "name": "label"})
-#                 frame_results = frame_results[['x1', 'y1', 'x2', 'y2', 'label', 'conf']]
-
-#                 # Draw bounding boxes on the frame
-#                 for _, row in frame_results.iterrows():
-#                     x1, y1, x2, y2 = int(row['x1']), int(row['y1']), int(row['x2']), int(row['y2'])
-#                     color = (0, 255, 0)  # Green color for bounding box
-#                     cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
-
-#                 # Write the frame to the output video
-#                 out.write(frame)
-
-#         # Release everything if job is finished
-#         cap.release()
-#         out.release()
-#         print(f"Processed video saved at: {output_video_path}")
-
-#     except Exception as e:
-#         print("FAILED AT ", e)
-
-# if __name__ == "__main__":
-#     chunk_size = 1800
-#     query_seg_size = 1800
-
-#     video_data = VideoData(db_vid=video_name, hour=hour)
-
-#     minutes = list(range(0, 60 * 1800, 1800))
-
-#     param_sweeps = {
-#         "diff_thresh": [16],
-#         "peak_thresh": [0.1],
-#         "fps": [30]
-#     }
-
-#     sweep_param_keys = list(param_sweeps.keys())[::-1]
-#     _combos = list(product(*[param_sweeps[k] for k in sweep_param_keys]))
-#     segment_combos = []
-#     for minute in minutes:
-#         chunk_starts = list(range(minute, minute + 1800, chunk_size))
-#         segment_combos.append(chunk_starts)
-#     ingest_combos = list(product(_combos, segment_combos))
-
-#     # Run YOLO, draw bounding boxes, and save the video
-#     run_yolo_and_draw_bboxes(ingest_combos, video_data, chunk_size, output_video_path)
+    _type = 2
+    end_frame = 18000
+    vd = VideoData(video_name, 10)
+    vd.check_vids()
+    processor = ResultProcessor(vd, video_path, output_video_path, trajectory_dir, boggart_result_dir, query_result_dir, yolo_path, _type, end_frame, target_accuracy)
+    # processor.run_draw_bbox_image()
+    processor.run_draw_bbox_video()

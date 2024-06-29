@@ -107,12 +107,12 @@ frame_bounds = {
 }
 
 class BackgroundConfig:
-    def __init__(self, peak_thresh):
+    def __init__(self, peak_thresh, bg_dur):
         self.peak_thresh : int = peak_thresh
         self.sample_rate : int = 30
         self.box_length : int = 2
         self.quant : int = 16
-        self.bg_dur : int = 1800
+        self.bg_dur : int = bg_dur
 
     def get_bg_dir(self, video_dir):
         return background_dir.format(video_dir=video_dir)

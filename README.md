@@ -1,41 +1,18 @@
-# Boggart
+# Boggart in Camera
 
-## Visualization
-
-https://user-images.githubusercontent.com/16660771/232618499-968dd37e-d9e9-4601-80d4-4096a46365e3.mp4
-
+# Work in Nvidia Jetson AGX Xavier
 ## Environment/Repository Setup Instructions
 ### Python Environment
 ```
 cd boggart
-sudo apt install python3.7
-python3.7 -m venv env
+sudo apt install python3.8
+python3.8 -m venv env --system-site-packages
 source env/bin/activate
 pip install --upgrade pip
-pip install opencv-python tqdm tensorflow munkres 
-pip install mongoengine
+pip install tqdm munkres mongoengine
 ```
-
 In `configs.py`, set `BOGGART_REPO_PATH` to the location of the Boggart repository.
 
-### Hwang Frame Extraction Repository
-```
-git clone https://github.com/neilsagarwal/hwang
-sudo apt-get install git cmake libgoogle-glog-dev libgflags-dev yasm libx264-dev build-essential wget unzip autoconf libtool
-cd hwang
-bash deps.sh
-export LD_LIBRARY_PATH=<PATH_TO_BOGGART_REPO>/hwang/thirdparty/install/lib:$LD_LIBRARY_PATH
-mkdir build
-cd build
-cmake ..
-make -j64
-cd ..
-bash build.sh
-export LD_LIBRARY_PATH=<PATH_TO_BOGGART_REPO>/hwang/python/python/hwang/lib:$LD_LIBRARY_PATH
- 
-cd ..
-```
-cmd: ```export LD_LIBRARY_PATH=<PATH_TO_BOGGART_REPO>/hwang/python/python/hwang/lib:$LD_LIBRARY_PATH```는 매 terminal 실행때마다 다시 실행해주어야 한다.
 ### For mAP Evaluation
 ```
 git clone --depth 1 https://github.com/tensorflow/models

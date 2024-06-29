@@ -10,30 +10,29 @@ import os
 import cv2
 from configs import BOGGART_REPO_PATH
 # from load_detections_into_mongodb import load_to_mongodb
-if torch.cuda.is_available():
-    device = torch.device("cuda:2")
-    model = torch.hub.load('ultralytics/yolov5', 'yolov5l')
-    model.to(device)
 
 # video_name = "auburn_crf47_first_angle"
 # ml_model = "yolov3-coco"
-video_name = "lausanne_crf47_pont_bassieres"
-ml_model = "yolov5"
+video_name = "auburn_first_angle"
+ml_model = "yolov5l"
 hour = 10
 # csv_path = f'{main_dir}/inference_results/yolov3-coco/auburn_first_angle/auburn_crf23_first_angle10.csv'
-csv_path = f"{BOGGART_REPO_PATH}/inference_results/{ml_model}/{video_name}/{video_name}{hour}.csv"
+csv_dir = f"{BOGGART_REPO_PATH}/inference_results/{ml_model}/{video_name}"
+csv_path = os.path.join(csv_dir, f"{video_name}{hour}.csv")
+# csv_path = f"{BOGGART_REPO_PATH}/inference_results/{ml_model}/{video_name}/{video_name}{hour}.csv"
 
 def run_yolo(ingest_combos, vd, chunk_size):
     try:
         # Create an empty CSV file with headers only if the file does not already exist
+        os.makedirs(csv_dir, exist_ok=True)
         if not os.path.exists(csv_path):
             pd.DataFrame(columns=["frame", "x1", "y1", "x2", "y2", "label", "conf"]).to_csv(csv_path, index=False)
 
-        for i in range(len(ingest_combos)):
+        for k in range(len(ingest_combos)):
             # Initialize DataFrame to store results for the current video
             results_df = pd.DataFrame(columns=["frame", "x1", "y1", "x2", "y2", "label", "conf"])
 
-            vals = ingest_combos[i]
+            vals = ingest_combos[k]
             chunk_start = vals[1][0]
 
             # t = Tracker(chunk_start)
@@ -47,13 +46,6 @@ def run_yolo(ingest_combos, vd, chunk_size):
                     continue
 
                 f = cv2.cvtColor(f, cv2.COLOR_BGR2GRAY)
-
-                h, w, = f.shape
-                h /= 2 # scale down
-                w /= 2 # scale down
-
-                f = cv2.resize(f, (int(w), int(h)))
-
                 results = model(f)
 
                 # Convert results to DataFrame
@@ -61,6 +53,10 @@ def run_yolo(ingest_combos, vd, chunk_size):
                 frame_results = frame_results.rename(columns={
                     "xmin": "x1", "ymin": "y1", "xmax": "x2", "ymax": "y2", 
                     "confidence": "conf", "name": "label"})
+                
+                # Change label from 'truck' to 'car'
+                frame_results['label'] = frame_results['label'].replace('truck', 'car')
+
                 frame_results['frame'] = i
                 frame_results = frame_results[['frame', 'x1', 'y1', 'x2', 'y2', 'label', 'conf']]
 
@@ -75,6 +71,13 @@ def run_yolo(ingest_combos, vd, chunk_size):
 
 
 if __name__ == "__main__":
+
+    if torch.cuda.is_available():
+        device = torch.device("cuda:3")
+        model = torch.hub.load(f'/home/kth/rva/yolov5', 'custom', f'{ml_model}.pt', source='local')
+        model.to(device)
+
+
     chunk_size = 1800
     query_seg_size = 1800
 
